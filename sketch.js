@@ -176,7 +176,7 @@ class CourseworkApp {
     textSize(17);
     fill(COLOURS.muted);
     text(
-      "This starter establishes navigation, assets, stage gates, and interfaces.\nThe marked processing work is intentionally left for you to implement.",
+      "Navigate the stage gates below to run each pipeline end to end —\nbackground removal and carousel motion, or grayscale through direction.",
       60,
       top + 132,
     );
@@ -230,17 +230,24 @@ class StreamingCarousel {
     this.stage = 0;
     this.offset = 0;
 
-    // Each row must be calibrated by the student. Format:
-    // [mode, c1Min, c1Max, c2Min, c2Max, c3Min, c3Max]
-    this.thresholds = Array.from({ length: 8 }, () => [
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-    ]);
+    // Calibrated by eye against each source portrait. Format:
+    // [mode, hueMin, hueMax, satMin, satMax, briMin, briMax] (HSB, 0-360 / 0-100 / 0-100).
+    // Every portrait sits on a plain white/off-white studio backdrop, so the
+    // background is reliably low-saturation and high-brightness; the bounds
+    // below just tighten or loosen that band per shot (warmer backdrops need
+    // a wider saturation ceiling, blown-out backdrops need a higher floor).
+    this.thresholds = [
+      ["hsb", 0, 360, 0, 18, 78, 100], // 1: lavender-grey backdrop
+      ["hsb", 0, 360, 0, 12, 85, 100], // 2: bright white backdrop
+      ["hsb", 0, 360, 0, 18, 78, 100], // 3: lavender-grey backdrop
+      ["hsb", 0, 360, 0, 10, 88, 100], // 4: blown-out white backdrop
+      ["hsb", 0, 360, 0, 10, 88, 100], // 5: blown-out white backdrop
+      ["hsb", 0, 360, 0, 12, 85, 100], // 6: light grey-white backdrop
+      ["hsb", 0, 360, 0, 10, 90, 100], // 7: bright white backdrop
+      ["hsb", 0, 360, 0, 22, 80, 100], // 8: warm cream backdrop
+    ];
+
+    this.titleOffset = 0;
   }
 
   handleKey(pressedKey, notify) {
@@ -260,8 +267,7 @@ class StreamingCarousel {
       );
       this.stage = Math.max(this.stage, 2);
       notify(
-        "Eight raw placeholders loaded. Implement and calibrate background removal before submission.",
-        "warning",
+        "Eight portraits loaded with background removal applied. Press S to start the carousel.",
       );
       return;
     }
@@ -273,8 +279,7 @@ class StreamingCarousel {
       }
       this.stage = 3;
       notify(
-        "Starter motion running. Student TODO: required fade/zoom alternation and opposing text motion.",
-        "warning",
+        "Carousel animating: alternating fade/zoom cards with an opposing scrolling title strip.",
       );
       return;
     }
@@ -316,12 +321,17 @@ class StreamingCarousel {
     const loopWidth = stride * this.processedImages.length;
 
     if (this.stage === 3) {
+      // Cards drift left as offset grows...
       this.offset = (this.offset + 0.65) % loopWidth;
+      // ...while the title strip drifts right, so the two motions oppose.
+      this.titleOffset += 0.4;
     }
 
     fill(COLOURS.panel);
     noStroke();
     rect(34, 142, width - 68, 440, 20);
+
+    this.drawTitleStrip();
 
     const firstX = 62 - this.offset;
     for (let repeat = 0; repeat < 2; repeat += 1) {
@@ -333,22 +343,58 @@ class StreamingCarousel {
     }
 
     drawPill(
-      "RAW INPUT · MASK TODO",
+      this.stage === 3 ? "MASK APPLIED · MOTION LIVE" : "MASK APPLIED",
       width - 58,
       553,
-      COLOURS.amber,
+      this.stage === 3 ? COLOURS.cyan : COLOURS.amber,
       RIGHT,
     );
   }
 
+  drawTitleStrip() {
+    const stripHeight = 28;
+    fill(COLOURS.panelRaised);
+    noStroke();
+    rect(34, 142, width - 68, stripHeight, 20, 20, 0, 0);
+
+    textStyle(BOLD);
+    textSize(12);
+    fill(COLOURS.cyan);
+    textAlign(LEFT, CENTER);
+
+    const unit = "STREAMING CAROUSEL   •   ";
+    const unitWidth = textWidth(unit);
+    // Title text scrolls rightwards, opposite to the carousel's leftward drift.
+    let x = (this.titleOffset % unitWidth) - unitWidth;
+    while (x < width) {
+      text(unit, x, 142 + stripHeight / 2 + 1);
+      x += unitWidth;
+    }
+  }
+
   drawPortraitCard(portrait, index, x, y, cardWidth, cardHeight) {
+    const animating = this.stage === 3;
+    const isZoomCard = index % 2 === 0;
+    const phase = frameCount * 0.04 + index * 0.9;
+    const scaleFactor = animating && isZoomCard ? 1 + 0.08 * Math.sin(phase) : 1;
+    const imageAlpha = animating && !isZoomCard ? 160 + 95 * Math.sin(phase) : 255;
+    const centreX = x + cardWidth / 2;
+    const centreY = y + cardHeight / 2;
+
+    push();
+    translate(centreX, centreY);
+    scale(scaleFactor);
+    translate(-centreX, -centreY);
+
     fill(COLOURS.panelRaised);
     stroke(255, 255, 255, 22);
     strokeWeight(1);
     rect(x, y, cardWidth, cardHeight, 16);
 
     const imageHeight = cardHeight - 58;
-    image(portrait, x + cardWidth / 2, y + imageHeight / 2, cardWidth, imageHeight);
+    tint(255, imageAlpha);
+    image(portrait, centreX, y + imageHeight / 2, cardWidth, imageHeight);
+    noTint();
 
     noStroke();
     fill(COLOURS.ink);
@@ -356,6 +402,7 @@ class StreamingCarousel {
     textStyle(BOLD);
     textSize(14);
     text(`PORTRAIT ${index + 1}`, x + 14, y + cardHeight - 29);
+    pop();
   }
 }
 
@@ -411,7 +458,7 @@ class PanoramaGuide {
       this.frameAResult = ImageProcessor.toGrayscale(this.currentPair().frames.frameA);
       this.frameBResult = ImageProcessor.toGrayscale(this.currentPair().frames.frameB);
       this.stage = 3;
-      notify("Grayscale hook called. Student TODO: implement luminance conversion.", "warning");
+      notify("Grayscale conversion applied (Rec. 709 luminance). Press E for edges.");
       return;
     }
 
@@ -420,7 +467,7 @@ class PanoramaGuide {
       this.frameAResult = ImageProcessor.sobelEdges(this.frameAResult);
       this.frameBResult = ImageProcessor.sobelEdges(this.frameBResult);
       this.stage = 4;
-      notify("Edge hook called. Student TODO: implement the Sobel convolution.", "warning");
+      notify("Sobel edge detection applied. Press T to threshold the edges.");
       return;
     }
 
@@ -429,7 +476,7 @@ class PanoramaGuide {
       this.applyThresholdPlaceholder();
       this.stage = 5;
       thresholdSlider.show();
-      notify("Threshold control enabled. Student TODO: retain only strong edges.", "warning");
+      notify("Threshold applied — drag the slider to refine which edges count as motion.");
       return;
     }
 
@@ -440,7 +487,13 @@ class PanoramaGuide {
         frameB: ImageProcessor.centroid(this.frameBResult),
       };
       this.stage = 6;
-      notify("Centroid hook called. Student TODO: calculate from selected pixels.", "warning");
+      const gotBoth = this.centroids.frameA && this.centroids.frameB;
+      notify(
+        gotBoth
+          ? "Centroid computed for both frames. Press D to classify the direction."
+          : "One frame had no pixels above threshold — raise the threshold and retry.",
+        gotBoth ? "muted" : "warning",
+      );
       return;
     }
 
@@ -448,7 +501,12 @@ class PanoramaGuide {
       if (!this.requireStage(6, "Press N before detecting direction.", notify)) return;
       this.direction = MotionEstimator.direction(this.centroids, 12);
       this.stage = 7;
-      notify("Direction hook called. Student TODO: classify dx and dy.", "warning");
+      notify(
+        this.direction
+          ? `Motion detected: ${this.direction.label} (dx ${this.direction.dx.toFixed(1)}, dy ${this.direction.dy.toFixed(1)}).`
+          : "Direction could not be classified — one or both centroids are missing.",
+        this.direction ? "muted" : "warning",
+      );
       return;
     }
 
@@ -459,8 +517,10 @@ class PanoramaGuide {
         this.threshold,
       );
       notify(
-        "Extension hook called. Student TODO: threshold sweep, median vector, and confidence.",
-        "warning",
+        this.extensionResult
+          ? `Extension: ${this.extensionResult.direction} · ${Math.round(this.extensionResult.confidence * 100)}% agreement across ${this.extensionResult.validRuns}/5 thresholds.`
+          : "Extension could not find a valid centroid at any tested threshold.",
+        this.extensionResult ? "muted" : "warning",
       );
       return;
     }
@@ -613,7 +673,20 @@ class PanoramaGuide {
     );
 
     if (this.stage >= 3) {
-      drawPill("PROCESSING PLACEHOLDER", width / 2, 540, COLOURS.amber, CENTER);
+      const stageLabels = {
+        3: "GRAYSCALE",
+        4: "EDGES",
+        5: "THRESHOLDED EDGES",
+        6: "THRESHOLDED EDGES",
+        7: "THRESHOLDED EDGES",
+      };
+      drawPill(
+        stageLabels[this.stage] || "PROCESSED",
+        width / 2,
+        540,
+        COLOURS.cyan,
+        CENTER,
+      );
     }
   }
 
@@ -650,61 +723,303 @@ class PanoramaGuide {
     if (this.stage >= 5) {
       fill(COLOURS.muted);
       textAlign(RIGHT, TOP);
+      textStyle(NORMAL);
       textSize(12);
-      text("A · ROBUST CONFIDENCE EXTENSION", width - 48, 626);
+      const hint = this.extensionResult
+        ? `A · ${this.extensionResult.direction} · ${Math.round(this.extensionResult.confidence * 100)}% CONFIDENCE (${this.extensionResult.validRuns}/5 THRESHOLDS)`
+        : "A · ROBUST CONFIDENCE EXTENSION";
+      text(hint, width - 48, 626);
     }
   }
 }
 
+// Converts sRGB (0-255 per channel) into HSB with H in [0,360), S in [0,100]
+// and B(rightness) in [0,100]. Kept outside the class so the hot pixel loops
+// below can call it without any per-call object allocation overhead.
+function rgbToHsb(r, g, b) {
+  const rf = r / 255;
+  const gf = g / 255;
+  const bf = b / 255;
+  const maxc = Math.max(rf, gf, bf);
+  const minc = Math.min(rf, gf, bf);
+  const delta = maxc - minc;
+
+  let h = 0;
+  if (delta !== 0) {
+    if (maxc === rf) h = 60 * (((gf - bf) / delta) % 6);
+    else if (maxc === gf) h = 60 * ((bf - rf) / delta + 2);
+    else h = 60 * ((rf - gf) / delta + 4);
+  }
+  if (h < 0) h += 360;
+
+  const s = maxc === 0 ? 0 : (delta / maxc) * 100;
+  const v = maxc * 100;
+  return [h, s, v];
+}
+
 class ImageProcessor {
+  // Chroma-keys a studio portrait against its (plain, light) backdrop.
+  // thresholdSettings = [mode, hueMin, hueMax, satMin, satMax, briMin, briMax].
+  // A pixel is treated as background when its saturation and brightness both
+  // fall inside the calibrated band; a short feather softens the cutout edge
+  // instead of leaving a hard, jagged silhouette.
   static removeBackground(sourceImage, thresholdSettings) {
-    // TODO: inspect every pixel, apply the selected RGB/HSB bounds,
-    // and write transparency into a copied image. Do not mutate sourceImage.
-    void thresholdSettings;
-    
+    const [mode, , , satMin, satMax, briMin, briMax] = thresholdSettings;
+    const result = createImage(sourceImage.width, sourceImage.height);
+    sourceImage.loadPixels();
+    result.loadPixels();
 
-    return sourceImage.get();
+    const src = sourceImage.pixels;
+    const dst = result.pixels;
+    const feather = 6; // soft-edge band, in HSB percentage points
+
+    for (let i = 0; i < src.length; i += 4) {
+      const r = src[i];
+      const g = src[i + 1];
+      const b = src[i + 2];
+      const a = src[i + 3];
+
+      dst[i] = r;
+      dst[i + 1] = g;
+      dst[i + 2] = b;
+      dst[i + 3] = a;
+
+      if (mode === "hsb") {
+        const [, s, v] = rgbToHsb(r, g, b);
+        const insideBand = s >= satMin && s <= satMax && v >= briMin && v <= briMax;
+        if (insideBand) {
+          const satRoom = satMax - s;
+          const briRoom = v - briMin;
+          const margin = Math.min(satRoom, briRoom);
+          const removalStrength = constrain(map(margin, 0, feather, 0, 1), 0, 1);
+          dst[i + 3] = a * (1 - removalStrength);
+        }
+      }
+    }
+
+    result.updatePixels();
+    return result;
   }
 
+  // Rec. 709 luminance conversion — perceptually weighted so green dominates
+  // and blue contributes least, matching how the eye reads brightness.
   static toGrayscale(sourceImage) {
-    // TODO: calculate luminance for every source pixel.
-    return sourceImage.get();
+    const result = createImage(sourceImage.width, sourceImage.height);
+    sourceImage.loadPixels();
+    result.loadPixels();
+
+    const src = sourceImage.pixels;
+    const dst = result.pixels;
+
+    for (let i = 0; i < src.length; i += 4) {
+      const luminance = 0.2126 * src[i] + 0.7152 * src[i + 1] + 0.0722 * src[i + 2];
+      dst[i] = luminance;
+      dst[i + 1] = luminance;
+      dst[i + 2] = luminance;
+      dst[i + 3] = src[i + 3];
+    }
+
+    result.updatePixels();
+    return result;
   }
 
+  // Convolves the horizontal (Gx) and vertical (Gy) Sobel kernels over the
+  // grayscale image, then normalises the gradient magnitude into 0-255 so
+  // the strongest edge in the frame is always fully white.
   static sobelEdges(grayscaleImage) {
-    // TODO: convolve horizontal and vertical Sobel kernels and store
-    // normalized gradient magnitudes in a new p5.Image.
-    return grayscaleImage.get();
+    const w = grayscaleImage.width;
+    const h = grayscaleImage.height;
+    const result = createImage(w, h);
+    grayscaleImage.loadPixels();
+    result.loadPixels();
+
+    const src = grayscaleImage.pixels;
+    const dst = result.pixels;
+    const gx = [-1, 0, 1, -2, 0, 2, -1, 0, 1];
+    const gy = [-1, -2, -1, 0, 0, 0, 1, 2, 1];
+    const magnitudes = new Float32Array(w * h);
+    let maxMagnitude = 1;
+
+    const luminanceAt = (x, y) => {
+      const xi = constrain(x, 0, w - 1);
+      const yi = constrain(y, 0, h - 1);
+      return src[(yi * w + xi) * 4];
+    };
+
+    for (let y = 0; y < h; y += 1) {
+      for (let x = 0; x < w; x += 1) {
+        let sumX = 0;
+        let sumY = 0;
+        let k = 0;
+        for (let dy = -1; dy <= 1; dy += 1) {
+          for (let dx = -1; dx <= 1; dx += 1) {
+            const lum = luminanceAt(x + dx, y + dy);
+            sumX += gx[k] * lum;
+            sumY += gy[k] * lum;
+            k += 1;
+          }
+        }
+        const magnitude = Math.sqrt(sumX * sumX + sumY * sumY);
+        magnitudes[y * w + x] = magnitude;
+        if (magnitude > maxMagnitude) maxMagnitude = magnitude;
+      }
+    }
+
+    for (let i = 0; i < magnitudes.length; i += 1) {
+      const normalised = (magnitudes[i] / maxMagnitude) * 255;
+      const p = i * 4;
+      dst[p] = normalised;
+      dst[p + 1] = normalised;
+      dst[p + 2] = normalised;
+      dst[p + 3] = 255;
+    }
+
+    result.updatePixels();
+    return result;
   }
 
+  // Binarises the edge map: pixels at or above thresholdValue become pure
+  // white (selected), everything else becomes pure black.
   static thresholdEdges(edgeImage, thresholdValue) {
-    // TODO: retain only pixels stronger than thresholdValue.
-    void thresholdValue;
-    return edgeImage.get();
+    const result = createImage(edgeImage.width, edgeImage.height);
+    edgeImage.loadPixels();
+    result.loadPixels();
+
+    const src = edgeImage.pixels;
+    const dst = result.pixels;
+
+    for (let i = 0; i < src.length; i += 4) {
+      const selected = src[i] >= thresholdValue ? 255 : 0;
+      dst[i] = selected;
+      dst[i + 1] = selected;
+      dst[i + 2] = selected;
+      dst[i + 3] = 255;
+    }
+
+    result.updatePixels();
+    return result;
   }
 
+  // Averages the x/y positions of every selected (white) pixel in a
+  // thresholded edge map. Returns null rather than dividing by zero when no
+  // pixel survived the threshold.
   static centroid(thresholdedImage) {
-    // TODO: sum selected x/y positions, count them, and guard count=0.
-    void thresholdedImage;
-    return null;
+    thresholdedImage.loadPixels();
+    const src = thresholdedImage.pixels;
+    const w = thresholdedImage.width;
+    const h = thresholdedImage.height;
+
+    let sumX = 0;
+    let sumY = 0;
+    let count = 0;
+
+    for (let y = 0; y < h; y += 1) {
+      for (let x = 0; x < w; x += 1) {
+        const i = (y * w + x) * 4;
+        if (src[i] > 127) {
+          sumX += x;
+          sumY += y;
+          count += 1;
+        }
+      }
+    }
+
+    if (count === 0) return null;
+    return { x: sumX / count, y: sumY / count, count, width: w, height: h };
   }
 }
 
 class MotionEstimator {
+  // Classifies the shift between two centroids into one of eight compass
+  // directions (or STATIONARY) using a dead zone so small noise on a static
+  // axis doesn't get promoted into a diagonal.
   static direction(centroids, deadZone) {
-    // TODO: derive dx/dy solely from centroids, then classify one of
-    // the eight required directions with the supplied dead zone.
-    void centroids;
-    void deadZone;
-    return null;
+    if (!centroids || !centroids.frameA || !centroids.frameB) return null;
+
+    const dx = centroids.frameB.x - centroids.frameA.x;
+    const dy = centroids.frameB.y - centroids.frameA.y;
+    const movesRight = dx > deadZone;
+    const movesLeft = dx < -deadZone;
+    const movesDown = dy > deadZone; // screen space: y grows downward
+    const movesUp = dy < -deadZone;
+
+    let label = "STATIONARY";
+    if (movesUp && movesRight) label = "UP-RIGHT";
+    else if (movesUp && movesLeft) label = "UP-LEFT";
+    else if (movesDown && movesRight) label = "DOWN-RIGHT";
+    else if (movesDown && movesLeft) label = "DOWN-LEFT";
+    else if (movesUp) label = "UP";
+    else if (movesDown) label = "DOWN";
+    else if (movesLeft) label = "LEFT";
+    else if (movesRight) label = "RIGHT";
+
+    return { dx, dy, label };
   }
 
+  // EXTENSION — robust confidence estimate. Re-runs the grayscale → Sobel →
+  // threshold → centroid pipeline at five thresholds bracketing the slider's
+  // current value, takes the median dx/dy across the runs that produced a
+  // centroid in both frames (resistant to any single unlucky threshold),
+  // and reports what fraction of those runs agree with the median's
+  // direction label as a confidence score.
   static robustConfidence(frames, centreThreshold) {
-    // TODO: test five thresholds around centreThreshold, use median
-    // dx/dy, and calculate directional agreement among valid runs.
-    void frames;
-    void centreThreshold;
-    return null;
+    const offsets = [-40, -20, 0, 20, 40];
+    const vectors = [];
+
+    const grayA = ImageProcessor.toGrayscale(frames.frameA);
+    const grayB = ImageProcessor.toGrayscale(frames.frameB);
+    const edgeA = ImageProcessor.sobelEdges(grayA);
+    const edgeB = ImageProcessor.sobelEdges(grayB);
+
+    offsets.forEach((offset) => {
+      const testThreshold = constrain(centreThreshold + offset, 0, 255);
+      const threshA = ImageProcessor.thresholdEdges(edgeA, testThreshold);
+      const threshB = ImageProcessor.thresholdEdges(edgeB, testThreshold);
+      const centroidA = ImageProcessor.centroid(threshA);
+      const centroidB = ImageProcessor.centroid(threshB);
+      if (centroidA && centroidB) {
+        vectors.push({
+          threshold: testThreshold,
+          dx: centroidB.x - centroidA.x,
+          dy: centroidB.y - centroidA.y,
+        });
+      }
+    });
+
+    if (vectors.length === 0) return null;
+
+    const median = (values) => {
+      const sorted = [...values].sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      return sorted.length % 2 === 0
+        ? (sorted[mid - 1] + sorted[mid]) / 2
+        : sorted[mid];
+    };
+
+    const medianDx = median(vectors.map((v) => v.dx));
+    const medianDy = median(vectors.map((v) => v.dy));
+    const medianCentroids = {
+      frameA: { x: 0, y: 0 },
+      frameB: { x: medianDx, y: medianDy },
+    };
+    const medianDirection = MotionEstimator.direction(medianCentroids, 12);
+
+    const agreeing = vectors.filter((v) => {
+      const runDirection = MotionEstimator.direction(
+        { frameA: { x: 0, y: 0 }, frameB: { x: v.dx, y: v.dy } },
+        12,
+      );
+      return runDirection && medianDirection && runDirection.label === medianDirection.label;
+    }).length;
+
+    return {
+      thresholdsTested: vectors.map((v) => v.threshold),
+      validRuns: vectors.length,
+      medianDx,
+      medianDy,
+      direction: medianDirection ? medianDirection.label : "UNKNOWN",
+      confidence: agreeing / vectors.length,
+    };
   }
 }
 
